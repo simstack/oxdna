@@ -1,0 +1,222 @@
+name: Science image
+
+on:
+  push:
+  workflow_dispatch:
+    inputs:
+      distribute:
+        description: Mirror to simstack.de :5000 and push SIF to GHCR
+        type: boolean
+        default: true
+
+concurrency:
+  group: science-image-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: oxdna
+  LOCAL_IMAGE: oxdna:latest
+  SIF_NAME: oxdna.sif
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # The push SHA can already be behind main when a release commit landed
+      # first. Releasing from that parent is not a fast-forward and skips the image build.
+      - name: Fast-forward to the remote default branch
+        if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+        run: |
+          set -euo pipefail
+          branch="${{ github.event.repository.default_branch }}"
+          git fetch origin "$branch"
+          if git merge-base --is-ancestor HEAD "origin/${branch}"; then
+            git switch -C "$branch" "origin/${branch}"
+          else
+            echo "HEAD is not contained in origin/${branch}; releasing from the checked-out commit"
+          fi
+
+      - name: Python Semantic Release
+        id: release
+        if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+        uses: python-semantic-release/python-semantic-release@v9
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Resolve package version
+        id: pkgver
+        run: |
+          set -euo pipefail
+          if [ -n "${{ steps.release.outputs.version }}" ]; then
+            ver="${{ steps.release.outputs.version }}"
+          elif [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            ver="${GITHUB_REF#refs/tags/v}"
+          else
+            python3 -m pip install -q --break-system-packages hatch hatch-vcs
+            ver=$(hatch version)
+          fi
+          echo "version=${ver}" >> "$GITHUB_OUTPUT"
+          echo "package version ${ver}"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=${{ github.sha }}
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=${{ steps.pkgver.outputs.version }},enable=${{ steps.release.outputs.released == 'true' }}
+            type=raw,value=latest,enable=${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+
+      - name: Resolve uv git SHAs
+        id: uv_git
+        run: |
+          set -euo pipefail
+          shas=$(python3 resolve_uv_git_shas.py pyproject.docker)
+          echo "shas=${shas}" >> "$GITHUB_OUTPUT"
+          echo "uv git sources ${shas}"
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          push: true
+          provenance: false
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            UV_GIT_SHAS=${{ steps.uv_git.outputs.shas }}
+            PACKAGE_VERSION=${{ steps.pkgver.outputs.version }}
+
+  distribute:
+    needs: build
+    if: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) || (github.event_name == 'workflow_dispatch' && inputs.distribute) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      IMAGE: ghcr.io/simstack/oxdna:${{ github.sha }}
+      GHCR_USER: ${{ github.actor }}
+      GHCR_TOKEN: ${{ secrets.GHCR_READ_TOKEN || secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Mirror image to simstack.de :5000
+        uses: appleboy/ssh-action@v1.2.2
+        with:
+          host: ${{ vars.DEPLOY_HOST || 'www.simstack.de' }}
+          username: ${{ vars.DEPLOY_USER || 'simstack' }}
+          key: ${{ secrets.DEPLOY_SSH_PRIVATE_KEY || secrets.SIMSTACK_SSH_PRIVATE_KEY }}
+          envs: IMAGE,GHCR_USER,GHCR_TOKEN,LOCAL_IMAGE
+          script: |
+            set -euo pipefail
+            echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
+            docker pull "$IMAGE"
+            docker tag "$IMAGE" "$LOCAL_IMAGE"
+            docker tag "$LOCAL_IMAGE" "127.0.0.1:5000/${LOCAL_IMAGE}"
+            docker push "127.0.0.1:5000/${LOCAL_IMAGE}"
+            docker image ls "$LOCAL_IMAGE"
+            docker image ls "127.0.0.1:5000/${LOCAL_IMAGE}"
+
+  apptainer:
+    needs: build
+    if: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) || (github.event_name == 'workflow_dispatch' && inputs.distribute) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      IMAGE: ghcr.io/simstack/oxdna:${{ github.sha }}
+      CRANE_VERSION: v0.20.2
+    steps:
+      - name: Install crane and Apptainer
+        run: |
+          set -euo pipefail
+          curl -fsSL "https://github.com/google/go-containerregistry/releases/download/${CRANE_VERSION}/go-containerregistry_Linux_x86_64.tar.gz" \
+            | sudo tar -xz -C /usr/local/bin crane
+          crane version
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            uidmap fuse2fs squashfs-tools
+          # The default 1.4.2 deb depends on libfuse3-3. Ubuntu 26.04 and
+          # Debian 13 replaced that package with libfuse3-4, so use the
+          # trixie+ build there.
+          if apt-cache show libfuse3-3 >/dev/null 2>&1; then
+            apptainer_deb="apptainer_1.4.2_amd64.deb"
+          else
+            apptainer_deb="apptainer_1.4.2-trixie+_amd64.deb"
+          fi
+          curl -fsSL -o /tmp/apptainer.deb \
+            "https://github.com/apptainer/apptainer/releases/download/v1.4.2/${apptainer_deb}"
+          sudo apt-get install -y /tmp/apptainer.deb
+          apptainer version
+
+      - name: Pull GHCR image and build SIF
+        run: |
+          set -euo pipefail
+          echo "${{ secrets.GITHUB_TOKEN }}" | crane auth login ghcr.io -u "${{ github.actor }}" --password-stdin
+          mkdir -p "${RUNNER_TEMP}/apptainer-work"
+          export APPTAINER_TMPDIR="${RUNNER_TEMP}/apptainer-work/tmp"
+          export APPTAINER_CACHEDIR="${RUNNER_TEMP}/apptainer-work/cache"
+          mkdir -p "$APPTAINER_TMPDIR" "$APPTAINER_CACHEDIR"
+          crane pull "$IMAGE" "${RUNNER_TEMP}/apptainer-work/image.tar"
+          apptainer build --force --disable-cache \
+            "${RUNNER_TEMP}/apptainer-work/${SIF_NAME}" \
+            "docker-archive://${RUNNER_TEMP}/apptainer-work/image.tar"
+          ls -lh "${RUNNER_TEMP}/apptainer-work/${SIF_NAME}"
+
+      - name: Push SIF to GHCR
+        run: |
+          set -euo pipefail
+          echo "${{ secrets.GITHUB_TOKEN }}" | apptainer registry login \
+            --username "${{ github.actor }}" --password-stdin docker://ghcr.io
+          sif="${RUNNER_TEMP}/apptainer-work/${SIF_NAME}"
+          dest="oras://ghcr.io/${{ github.repository_owner }}/oxdna-sif"
+          apptainer push "$sif" "${dest}:${{ github.sha }}"
+          if [ "${{ github.ref }}" = "refs/heads/${{ github.event.repository.default_branch }}" ]; then
+            apptainer push "$sif" "${dest}:latest"
+          fi
+
+      - name: Upload SIF artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.SIF_NAME }}
+          path: ${{ runner.temp }}/apptainer-work/${{ env.SIF_NAME }}
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Publish SIF GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: container-sif
+          name: Apptainer SIF
+          target_commitish: ${{ github.sha }}
+          files: ${{ runner.temp }}/apptainer-work/${{ env.SIF_NAME }}
+          fail_on_unmatched_files: true
+          make_latest: false
+          body: |
+            Pre-built Apptainer image (`${{ env.SIF_NAME }}`).
+            On 2FA-only hosts, download with a PAT (no interactive login):
+            `curl -L -H "Authorization: Bearer $GITHUB_TOKEN" -o ${{ env.SIF_NAME }} https://github.com/${{ github.repository }}/releases/download/container-sif/${{ env.SIF_NAME }}`

@@ -1,0 +1,18 @@
+#### DNAnalysis: pair energies of every saved frame after the equilibration cut ####
+backend = CPU
+verlet_skin = 0.2
+interaction_type = DNA2
+use_average_seq = false
+{SEQ_DEP_KEY} = {SEQ_DEP_FILE}
+salt_concentration = {SALT}
+T = {T_C}C
+topology = {TOPOLOGY}
+trajectory_file = trajectory.dat
+analysis_confs_to_skip = {SKIP}
+analysis_data_output_1 = {
+	name = all_pair_energies.dat
+	print_every = 1
+	col_1 = {
+		type = pair_energy
+	}
+}

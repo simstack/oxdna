@@ -1,0 +1,9 @@
+.git
+.venv
+vendor
+**/__pycache__
+**/*.pyc
+.pytest_cache
+simstack.toml
+yls6_smoke_inspect
+*.egg-info

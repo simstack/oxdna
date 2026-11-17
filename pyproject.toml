@@ -1,0 +1,71 @@
+[project]
+name = "oxdna"
+dynamic = ["version"]
+description = "oxDNA sticky-end thermodynamics nodes for the Simstack framework"
+readme = "README.md"
+requires-python = ">=3.12, <3.13"
+license = { text = "MIT" }
+authors = [
+  { name = "Wolfgang Wenzel", email = "wolfgang.wenzel@kit.edu" }
+]
+dependencies = [
+    "numpy==2.5.0",
+    "pandas",
+    "simstack",
+]
+
+[project.entry-points."simstack.modules"]
+oxdna = "oxdna"
+
+[build-system]
+requires = ["hatchling", "hatch-vcs"]
+build-backend = "hatchling.build"
+
+[tool.hatch.version]
+source = "vcs"
+fallback-version = "0.1.0"
+
+[tool.hatch.version.raw-options]
+version_scheme = "guess-next-dev"
+local_scheme = "no-local-version"
+fallback_version = "0.1.0"
+
+[tool.hatch.build.hooks.vcs]
+version-file = "_version.py"
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
+[tool.hatch.build.targets.wheel]
+bypass-selection = true
+
+[tool.hatch.build.targets.wheel.force-include]
+"__init__.py" = "oxdna/__init__.py"
+"_version.py" = "oxdna/_version.py"
+"nodes" = "oxdna/nodes"
+"models" = "oxdna/models"
+"util" = "oxdna/util"
+"part1_md" = "oxdna/part1_md"
+"part2_umbrella" = "oxdna/part2_umbrella"
+"templates" = "oxdna/templates"
+"testing" = "oxdna/testing"
+"data" = "oxdna/data"
+
+[tool.uv.sources]
+simstack = { git = "https://github.com/simstack/simstack.git", rev = "ww/new-features" }
+
+[tool.uv]
+override-dependencies = [
+    "numpy==2.5.0",
+    "simstack @ git+https://github.com/simstack/simstack.git@ww/new-features",
+]
+
+[tool.pytest.ini_options]
+asyncio_default_fixture_loop_scope = "session"
+asyncio_default_test_loop_scope = "session"
+
+[dependency-groups]
+dev = [
+    "pytest",
+    "pytest-asyncio",
+]

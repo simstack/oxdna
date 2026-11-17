@@ -1,0 +1,39 @@
+# Local resource programs for the oxDNA nodes. The image is the one built here.
+[local]
+os = "windows"
+
+[local.program.fuse]
+docker_image = "oxdna:latest"
+run_command = "oxDNA"
+
+[local.program.production_md]
+docker_image = "oxdna:latest"
+run_command = "oxDNA"
+
+[local.program.pair_energies]
+docker_image = "oxdna:latest"
+run_command = "DNAnalysis"
+
+[local.program.fragment]
+docker_image = "oxdna:latest"
+run_command = "oxDNA"
+
+[local.program.umbrella_round]
+docker_image = "oxdna:latest"
+run_command = "oxDNA"
+
+[local.program.update_weights]
+docker_image = "oxdna:latest"
+run_command = "oxDNA"
+
+[local.program.umbrella_tune]
+docker_image = "oxdna:latest"
+run_command = "oxDNA"
+
+[local.program.umbrella_production]
+docker_image = "oxdna:latest"
+run_command = "oxDNA"
+
+[local.program.umbrella_analysis]
+docker_image = "oxdna:latest"
+run_command = "oxDNA"

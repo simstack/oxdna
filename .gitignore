@@ -1,0 +1,15 @@
+__pycache__/
+*.py[cod]
+.idea/
+.venv
+.env
+build/
+dist/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+_version.py
+vendor/
+simstack.toml
+yls6_smoke_inspect/

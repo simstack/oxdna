@@ -1,0 +1,46 @@
+#### VMMC umbrella sampling of sticky-end hybridisation (fragment) ####
+backend = CPU
+sim_type = VMMC
+ensemble = NVT
+interaction_type = DNA2
+use_average_seq = false
+{SEQ_DEP_KEY} = {SEQ_DEP_FILE}
+salt_concentration = {SALT}
+T = {T_C}C
+seed = {SEED}
+
+delta_translation = 0.22
+delta_rotation = 0.22
+verlet_skin = 1.0
+
+umbrella_sampling = 1
+op_file = op.txt
+weights_file = wfile.txt
+safe_weights = 0
+default_weight = 0
+extrapolate_hist = {EXTRAPOLATE}
+
+topology = fragment.top
+conf_file = fragment_unbound.dat
+equilibration_steps = {EQUIL}
+steps = {STEPS}
+restart_step_counter = 1
+time_scale = linear
+print_energy_every = {PRINT_EVERY}
+print_conf_interval = {CONF_INTERVAL}
+energy_file = energy.dat
+trajectory_file = trajectory.dat
+lastconf_file = last_conf.dat
+
+data_output_1 = {
+	name = junction_bonds.dat
+	print_every = {PRINT_EVERY}
+	col_1 = {
+		type = step
+		units = steps
+	}
+	col_2 = {
+		type = hb_list
+		order_parameters_file = junction_pairs.op
+	}
+}

@@ -1,0 +1,46 @@
+#### Fusion MD: mutual traps pull the two sticky ends into the designed duplex ####
+backend = {BACKEND}
+{CUDA_BLOCK}sim_type = MD
+verlet_skin = 0.2
+max_density_multiplier = 10
+max_io = 10000
+cells_auto_optimisation = false
+newtonian_steps = 103
+diff_coeff = 2.50
+thermostat = john
+dt = 0.003
+
+interaction_type = DNA2
+use_average_seq = false
+{SEQ_DEP_KEY} = {SEQ_DEP_FILE}
+salt_concentration = {SALT}
+T = {T_C}C
+
+topology = {TOPOLOGY}
+conf_file = {CONF}
+fix_diffusion = false
+external_forces = true
+external_forces_file = mutual_trap.txt
+
+steps = {STEPS}
+trajectory_file = trajectory.dat
+energy_file = energy.dat
+lastconf_file = last_conf.dat
+refresh_vel = 1
+time_scale = linear
+restart_step_counter = 1
+print_conf_interval = {CONF_INTERVAL}
+print_energy_every = 1000
+
+data_output_1 = {
+	name = sticky_bonds.dat
+	print_every = 10000
+	col_1 = {
+		type = step
+		units = steps
+	}
+	col_2 = {
+		type = hb_list
+		order_parameters_file = sticky_pairs.op
+	}
+}
